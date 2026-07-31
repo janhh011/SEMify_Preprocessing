@@ -14,6 +14,15 @@ extraction finish in the background.
 
 ![Workflow: mark, compare, save, with optional recrop](docs/workflow.png)
 
+1. **Mark** — the PDF opens page by page in the browser. Click each figure worth keeping; a numbered
+   marker appears and that page is analysed in the background.
+2. **Compare** — the marked figures are shown side by side with their captions. Click the ones to
+   keep; any number can be selected.
+3. **Saved** — each selected figure is written as a PNG plus a TXT with the paper's metadata and
+   surrounding section, and the next PDF loads straight away.
+
+**R · Recrop** (optional) — if a crop came out wrong, drag a box around the figure by hand instead.
+
 | Key | Action |
 | --- | --- |
 | **←** / **→** | Previous / next page |
@@ -92,11 +101,7 @@ CROSSREF_MAILTO=your@email.address
 
 ## Worked example
 
-Two real papers, showing the tool's actual output.
-
-### One figure — DOI resolved by the OpenAlex fallback
-
-`MISQ_1990_14_3_1.pdf`, figure on page 4:
+Actual output for `MISQ_1990_14_3_1.pdf`, one figure marked on page 4:
 
 <img src="docs/example-1990-fig1.png" width="380"
      alt="Extracted research model, Bergeron et al. 1990">
@@ -117,25 +122,11 @@ Location
 According to several authors, an appropriate location for the IC is critical. …
 ```
 
-Crossref did not match this 1990 paper confidently, so step 4 resolved it — otherwise the line would
-read `unknown`. The section starts at its real heading, **Location**, not a page boundary.
-
-### Two figures from one paper
-
-`MISQ_1991_15_1_7.pdf`, figures on pages 3 and 7, both selected — each saved with its own section,
-sharing one DOI lookup.
-
-| `…_m1.png` — page 3 | `…_m2.png` — page 7 |
-| --- | --- |
-| <img src="docs/example-1991-fig1.png" width="320" alt="Conceptual model of PC utilization"> | <img src="docs/example-1991-fig2.png" width="260" alt="Research model of PC utilization"> |
-
-<sub>Thompson, Higgins & Howell (1991), *MIS Quarterly*,
-<a href="https://doi.org/10.2307/249443">10.2307/249443</a></sub>
-
-The resulting `log.jsonl` lines:
+…and the matching `log.jsonl` line:
 
 ```json
 {"timestamp": "…", "pdf": "MISQ_1990_14_3_1.pdf", "action": "completed", "image": "MISQ_1990_14_3_1_m1.png", "page": 4, "chosen_marker_number": 1, "doi": "10.2307/248887", "doi_source": "openalex title match", "journal": "MIS Quarterly"}
-{"timestamp": "…", "pdf": "MISQ_1991_15_1_7.pdf", "action": "completed", "image": "MISQ_1991_15_1_7_m1.png", "page": 3, "chosen_marker_number": 1, "doi": "10.2307/249443", "doi_source": "crossref title match", "journal": "MIS Quarterly"}
-{"timestamp": "…", "pdf": "MISQ_1991_15_1_7.pdf", "action": "completed", "image": "MISQ_1991_15_1_7_m2.png", "page": 7, "chosen_marker_number": 2, "doi": "10.2307/249443", "doi_source": "crossref title match", "journal": "MIS Quarterly"}
 ```
+
+Crossref did not match this 1990 paper confidently, so step 4 resolved it — otherwise the DOI would
+read `unknown`. The section starts at its real heading, **Location**, not a page boundary.
