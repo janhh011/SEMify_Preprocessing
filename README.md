@@ -1,9 +1,9 @@
-# SEM Diagram Triage
+<img src="docs/logo.png" alt="SEMify" width="220">
 
 Extracts Structural Equation Model diagrams from academic PDFs, with a person deciding which figures
 matter.
 
-![A folder of PDFs, triaged by hand, into cropped figures with DOI, authors, journal and section text](docs/overview.png)
+![A folder of PDFs, sorted by hand, into cropped figures with DOI, authors, journal and section text](docs/overview.png)
 
 ---
 
@@ -87,7 +87,7 @@ Lookups are cached per paper: five figures from one PDF cause one request.
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-streamlit run sem_triage_app.py
+streamlit run semify_app.py
 ```
 
 Put PDFs in `input_pdfs/` and reload. Optionally add a local `.env` (gitignored) to use Crossref's

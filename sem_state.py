@@ -1,6 +1,6 @@
 """Process-wide mutable state, shared by the UI thread and the background worker.
 
-This deliberately lives outside `sem_triage_app.py`. Streamlit re-executes the
+This deliberately lives outside `semify_app.py`. Streamlit re-executes the
 main script top-to-bottom on every rerun, so anything defined at module level
 *there* is re-initialised on every interaction — which silently emptied the
 in-flight set (making a just-finished PDF reappear) and wiped the caches

@@ -1,4 +1,4 @@
-"""HITL Streamlit app: click-to-mark SEM diagrams in academic PDFs, scoped docling per pick."""
+"""SEMify — click-to-mark SEM diagrams in academic PDFs, with scoped docling per pick."""
 
 import concurrent.futures
 import difflib
@@ -24,6 +24,8 @@ DISREGARD_DIR = Path("disregard")
 PROCESSED_DIR = Path("processed_data")
 COMPLETED_DIR = Path("completed")
 LOG_PATH = PROCESSED_DIR / "log.jsonl"
+LOGO_PATH = Path("docs/logo.png")
+LOGO_ICON_PATH = Path("docs/logo-icon.png")
 
 ZOOM_LEVELS = {"75%": 0.75, "100%": 1.0, "150%": 1.5, "200%": 2.0}
 MARKER_RADIUS_PX = 14
@@ -178,7 +180,7 @@ def _crossref_session() -> requests.Session:
     # Crossref's "polite pool" is faster and far less rate-limited. Set
     # CROSSREF_MAILTO to your email address to opt in.
     mailto = os.environ.get("CROSSREF_MAILTO", "").strip()
-    ua = "SemTriage/1.0 (https://github.com/janhh011/Docling_PDF_Workflow)"
+    ua = "SEMify/1.0 (https://github.com/janhh011/Docling_PDF_Workflow)"
     if mailto:
         ua += f" mailto:{mailto}"
     session.headers.update({"User-Agent": ua})
@@ -1230,7 +1232,7 @@ def _wait_for_background() -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="SEM Triage", layout="wide")
+    st.set_page_config(page_title="SEMify", page_icon=str(LOGO_ICON_PATH), layout="wide")
     # Presentation only — spacing, weights and muted tones. Colours come from
     # .streamlit/config.toml. Streamlit reserves a large top margin by
     # default; trimming it keeps the viewer high on the page.
@@ -1238,10 +1240,6 @@ def main() -> None:
         """
         <style>
         .block-container { padding-top: 0.6rem; padding-bottom: 0.8rem; max-width: 1500px; }
-
-        /* Small header — the page viewer is the focus, not the title. */
-        h1 { font-size: 0.95rem; font-weight: 600; letter-spacing: 0.01em;
-             margin: 0 0 0.3rem; padding-top: 0; color: #55555F; }
 
         /* Muted, slightly smaller secondary text (page counts, statuses). */
         [data-testid="stCaptionContainer"] p { color: #6C6C79; font-size: 0.8rem;
@@ -1259,7 +1257,7 @@ def main() -> None:
         /* Size the viewer to the window so the buttons under it stay on
            screen without scrolling. The px height passed to st.container is
            the fallback if this rule ever stops matching. */
-        .st-key-pdf_viewer { height: calc(100vh - 190px) !important; }
+        .st-key-pdf_viewer { height: calc(100vh - 155px) !important; }
         .st-key-pdf_viewer > div { height: 100% !important; }
         </style>
         """,
@@ -1269,9 +1267,11 @@ def main() -> None:
     init_session_state()
     st.session_state.pending_shortcuts = []
 
-    pdf_path = get_or_advance_current_pdf()
+    if LOGO_PATH.exists():
+        st.logo(str(LOGO_PATH), size="large",
+                icon_image=str(LOGO_ICON_PATH) if LOGO_ICON_PATH.exists() else None)
 
-    st.title("SEM Diagram Triage")
+    pdf_path = get_or_advance_current_pdf()
 
     with _in_flight_lock:
         in_flight_count = len(sem_state.in_flight_pdfs)
