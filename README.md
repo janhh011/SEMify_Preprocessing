@@ -106,8 +106,8 @@ Actual output for `MISQ_1990_14_3_1.pdf`, one figure marked on page 4:
 <img src="docs/example-1990-fig1.png" width="380"
      alt="Extracted research model, Bergeron et al. 1990">
 
-<sub>Bergeron, Rivard & de Serre (1990), *MIS Quarterly*,
-<a href="https://doi.org/10.2307/248887">10.2307/248887</a></sub>
+<sub>Figure from Bergeron, Rivard & de Serre (1990) — full citation under
+<a href="#source">Source</a>.</sub>
 
 ```text
 Title: Investigating the Support Role of the Information Center
@@ -130,3 +130,15 @@ According to several authors, an appropriate location for the IC is critical. �
 
 Crossref did not match this 1990 paper confidently, so step 4 resolved it — otherwise the DOI would
 read `unknown`. The section starts at its real heading, **Location**, not a page boundary.
+
+---
+
+## Source
+
+The figure and text shown in the worked example are taken from:
+
+> Bergeron, F., Rivard, S., & de Serre, L. (1990). Investigating the Support Role of the Information
+> Center. *MIS Quarterly*, 14(3), 247–260. https://doi.org/10.2307/248887
+
+Copyright remains with the authors and MIS Quarterly. The excerpt is reproduced here only to
+illustrate this tool's output.
