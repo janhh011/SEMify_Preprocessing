@@ -14,24 +14,6 @@ block.
 
 ---
 
-## Setup
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-streamlit run sem_triage_app.py
-```
-
-Put PDFs in `input_pdfs/` and reload. Optionally add a local `.env` (gitignored) to use Crossref's
-polite pool, which is faster and less rate-limited:
-
-```
-CROSSREF_MAILTO=your@email.address
-```
-
----
-
 ## Workflow
 
 One PDF at a time. Confirming loads the next paper immediately; saving, the DOI lookup and text
@@ -120,6 +102,24 @@ Lookups are cached per paper: five figures from one PDF cause one request.
 - OCR is off: it took a page from ~2.5 s to ~21 s, and published PDFs carry a text layer. Scanned
   PDFs will not yield text.
 - `.env` is gitignored.
+
+---
+
+## Setup
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+streamlit run sem_triage_app.py
+```
+
+Put PDFs in `input_pdfs/` and reload. Optionally add a local `.env` (gitignored) to use Crossref's
+polite pool, which is faster and less rate-limited:
+
+```
+CROSSREF_MAILTO=your@email.address
+```
 
 ---
 
