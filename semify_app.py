@@ -816,12 +816,17 @@ def enable_drag_preview() -> None:
         <script>
         (function () {
             const doc = window.parent.document;
-            doc.querySelectorAll('iframe').forEach(function (frame) {
+
+            function attach() {
+                let found = false;
+                doc.querySelectorAll('iframe').forEach(function (frame) {
                 let d;
                 try { d = frame.contentDocument; } catch (err) { return; }
                 if (!d) return;
                 const img = d.getElementById('image');
-                if (!img || img.dataset.semifyDrag) return;
+                if (!img) return;
+                found = true;
+                if (img.dataset.semifyDrag) return;
                 img.dataset.semifyDrag = '1';
 
                 const box = d.createElement('div');
@@ -847,7 +852,18 @@ def enable_drag_preview() -> None:
                 // The drag often ends outside the iframe, so listen in both.
                 d.addEventListener('mouseup', stop);
                 doc.addEventListener('mouseup', stop);
-            });
+                });
+                return found;
+            }
+
+            // The component's iframe loads asynchronously, so its <img> is
+            // usually not there yet on the first pass. Keep looking briefly
+            // instead of giving up.
+            if (attach()) return;
+            let tries = 0;
+            const timer = setInterval(function () {
+                if (attach() || ++tries > 50) clearInterval(timer);
+            }, 200);
         })();
         </script>
         """,
