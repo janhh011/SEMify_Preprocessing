@@ -1,5 +1,6 @@
 """SEMify — click-to-mark SEM diagrams in academic PDFs, with scoped docling per pick."""
 
+import base64
 import concurrent.futures
 import difflib
 import json
@@ -757,6 +758,50 @@ def bind_shortcut(key_name: str, button_key: str) -> None:
     st.session_state.pending_shortcuts.append({"key": key_name, "button": button_key})
 
 
+@st.cache_data(show_spinner=False)
+def _favicon_data_uri() -> str | None:
+    if not LOGO_ICON_PATH.exists():
+        return None
+    return "data:image/png;base64," + base64.standard_b64encode(
+        LOGO_ICON_PATH.read_bytes()
+    ).decode("utf-8")
+
+
+def apply_favicon() -> None:
+    """Swap the tab icon by editing the <link> tags directly.
+
+    st.set_page_config(page_icon=...) updates the favicon from JavaScript
+    after load, which Safari ignores — it keeps showing the Streamlit icon
+    baked into the served index.html. Removing the existing links and adding
+    a fresh one (as a data URI, so no caching or media endpoint is involved)
+    gets Safari to pick it up. Runs once per browser session.
+    """
+    uri = _favicon_data_uri()
+    if not uri:
+        return
+    components.html(
+        f"""
+        <script>
+        (function () {{
+            const win = window.parent, doc = win.document;
+            if (win.__semifyFavicon) return;
+            doc.querySelectorAll(
+                "link[rel~='icon'], link[rel='shortcut icon'], link[rel='apple-touch-icon']"
+            ).forEach(function (el) {{ el.remove(); }});
+            const link = doc.createElement('link');
+            link.rel = 'icon';
+            link.type = 'image/png';
+            link.href = {json.dumps(uri)};
+            doc.head.appendChild(link);
+            win.__semifyFavicon = true;
+        }})();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
 def render_shortcuts() -> None:
     """Install this page's keyboard shortcuts. Call once, after the buttons render.
 
@@ -1273,18 +1318,30 @@ _SPINNER_SVG = """
 """
 
 
+def _html(markup: str) -> str:
+    """Flatten indented markup to a single line.
+
+    st.markdown treats any line indented by four or more spaces as a code
+    block, so HTML written at the indentation of the surrounding function is
+    displayed literally instead of rendered.
+    """
+    return " ".join(line.strip() for line in markup.splitlines() if line.strip())
+
+
 def _centred_notice(svg: str, title: str, subtitle: str) -> None:
     """One centred mark with a line of text under it — used for every state
     where there is no page to show."""
     st.markdown(
-        f"""
-        <div style="display:flex; flex-direction:column; align-items:center;
-                    justify-content:center; height:calc(100vh - 220px); gap:0.85rem;">
-          {svg}
-          <div style="color:#3C3C46; font-size:0.98rem; font-weight:500;">{title}</div>
-          <div style="color:#8A8A96; font-size:0.82rem;">{subtitle}</div>
-        </div>
-        """,
+        _html(
+            f"""
+            <div style="display:flex; flex-direction:column; align-items:center;
+                        justify-content:center; height:calc(100vh - 220px); gap:0.85rem;">
+              {svg}
+              <div style="color:#3C3C46; font-size:0.98rem; font-weight:500;">{title}</div>
+              <div style="color:#8A8A96; font-size:0.82rem;">{subtitle}</div>
+            </div>
+            """
+        ),
         unsafe_allow_html=True,
     )
 
@@ -1319,7 +1376,8 @@ def main() -> None:
     # .streamlit/config.toml. Streamlit reserves a large top margin by
     # default; trimming it keeps the viewer high on the page.
     st.markdown(
-        """
+        _html(
+            """
         <style>
         .block-container { padding-top: 0.6rem; padding-bottom: 0.8rem; max-width: 1500px; }
 
@@ -1342,13 +1400,15 @@ def main() -> None:
         .st-key-pdf_viewer { height: calc(100vh - 155px) !important; }
         .st-key-pdf_viewer > div { height: 100% !important; }
         </style>
-        """,
+            """
+        ),
         unsafe_allow_html=True,
     )
     ensure_dirs()
     init_session_state()
     st.session_state.pending_shortcuts = []
 
+    apply_favicon()
     if LOGO_PATH.exists():
         st.logo(str(LOGO_PATH), size="large",
                 icon_image=str(LOGO_ICON_PATH) if LOGO_ICON_PATH.exists() else None)
