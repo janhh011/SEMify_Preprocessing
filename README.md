@@ -175,3 +175,103 @@ Lookups are cached per paper, so selecting five figures from one PDF makes **one
 - **OCR is off.** It made a single page take ~21s instead of ~2.5s, and published PDFs almost always
   carry a real text layer already. Scanned/image-only PDFs won't yield text — that's the trade-off.
 - **`.env` is gitignored** so your email never lands in the repository.
+
+---
+
+## A worked example
+
+Two real papers, start to finish. Both were dropped into `input_pdfs/`, marked, and confirmed —
+these are the tool's actual outputs, not mock-ups.
+
+### Example 1 — one figure, DOI found by the OpenAlex fallback
+
+`MISQ_1990_14_3_1.pdf` — one figure marked on page 4 and confirmed.
+
+![Extracted research model, Bergeron et al. 1990](docs/example-1990-fig1.png)
+
+<sub>Figure extracted by the tool from Bergeron, Rivard & de Serre (1990), *MIS Quarterly*,
+<a href="https://doi.org/10.2307/248887">10.2307/248887</a>. Shown here to illustrate the output.</sub>
+
+`processed_data/MISQ_1990_14_3_1_m1.txt`:
+
+```text
+Title: Investigating the Support Role of the Information Center
+Authors: François Bergeron; Suzanne Rivard; Lyne de Serre
+Journal: MIS Quarterly
+DOI: 10.2307/248887
+DOI source: openalex title match
+
+--- First page text ---
+## Investigating the Support Role of  the
+…
+
+--- Section containing the figure (page 4) ---
+Location
+
+According to several authors, an appropriate location for the IC is critical. Providing users
+with distributed support services was the first recommendation made by Rockart and Flannery
+(1983) about support. …
+```
+
+Note the `DOI source` line. This paper is old enough that **Crossref's title search didn't confidently
+match it**, so the lookup fell through to OpenAlex, which did — exactly the fallback described in
+[How the DOI is found](#how-the-doi-is-found). Without it this line would read `unknown`.
+
+Also note the captured section starts at the heading **Location** — not an arbitrary window of
+pages — and runs to the next heading.
+
+### Example 2 — two figures from one paper, saved separately
+
+`MISQ_1991_15_1_7.pdf` — two figures marked (pages 3 and 7) and **both** selected in the comparison
+step, so each was saved with its own context.
+
+| `…_m1.png` — page 3 | `…_m2.png` — page 7 |
+| --- | --- |
+| ![Conceptual model of PC utilization](docs/example-1991-fig1.png) | ![Research model of PC utilization](docs/example-1991-fig2.png) |
+
+<sub>Figures extracted by the tool from Thompson, Higgins & Howell (1991), *MIS Quarterly*,
+<a href="https://doi.org/10.2307/249443">10.2307/249443</a>. Shown here to illustrate the output.</sub>
+
+Both text files share the same paper-level metadata — resolved with a **single** Crossref lookup, not
+one per figure — but each carries the section its own figure sits in:
+
+```text
+Title: Personal Computing: Toward a Conceptual Model of Utilization1
+Authors: Ronald L. Thompson; Christopher A. Higgins; Jane M. Howell
+Journal: MIS Quarterly
+DOI: 10.2307/249443
+DOI source: crossref title match
+```
+
+| File | Figure page | Section captured |
+| --- | --- | --- |
+| `MISQ_1991_15_1_7_m1.txt` | 3 | the section containing the conceptual model |
+| `MISQ_1991_15_1_7_m2.txt` | 7 | the section containing the research model |
+
+(The stray `1` after *Utilization* is a footnote marker sitting in the paper's own title — the tool
+records what it actually read rather than tidying it up.)
+
+### What the run left behind
+
+```text
+processed_data/
+├── MISQ_1990_14_3_1_m1.png   MISQ_1990_14_3_1_m1.txt
+├── MISQ_1991_15_1_7_m1.png   MISQ_1991_15_1_7_m1.txt
+├── MISQ_1991_15_1_7_m2.png   MISQ_1991_15_1_7_m2.txt
+└── log.jsonl
+
+completed/
+├── MISQ_1990_14_3_1.pdf
+└── MISQ_1991_15_1_7.pdf
+```
+
+`log.jsonl` — one line per saved figure:
+
+```json
+{"pdf": "MISQ_1990_14_3_1.pdf", "action": "completed", "image": "MISQ_1990_14_3_1_m1.png", "page": 4, "chosen_marker_number": 1, "doi": "10.2307/248887", "doi_source": "openalex title match", "journal": "MIS Quarterly"}
+{"pdf": "MISQ_1991_15_1_7.pdf", "action": "completed", "image": "MISQ_1991_15_1_7_m1.png", "page": 3, "chosen_marker_number": 1, "doi": "10.2307/249443", "doi_source": "crossref title match", "journal": "MIS Quarterly"}
+{"pdf": "MISQ_1991_15_1_7.pdf", "action": "completed", "image": "MISQ_1991_15_1_7_m2.png", "page": 7, "chosen_marker_number": 2, "doi": "10.2307/249443", "doi_source": "crossref title match", "journal": "MIS Quarterly"}
+```
+
+Together these two papers took well under a minute of interaction — the DOI lookups, text extraction
+and file writes all happened in the background while the next paper was already on screen.
