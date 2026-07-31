@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+input_pdfs/*.pdf
+disregard/*.pdf
+completed/*.pdf
+processed_data/
+output/
+.DS_Store
