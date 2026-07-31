@@ -180,7 +180,7 @@ def _crossref_session() -> requests.Session:
     # Crossref's "polite pool" is faster and far less rate-limited. Set
     # CROSSREF_MAILTO to your email address to opt in.
     mailto = os.environ.get("CROSSREF_MAILTO", "").strip()
-    ua = "SEMify/1.0 (https://github.com/janhh011/Docling_PDF_Workflow)"
+    ua = "SEMify/1.0 (https://github.com/janhh011/SEMify_Preprocessing)"
     if mailto:
         ua += f" mailto:{mailto}"
     session.headers.update({"User-Agent": ua})
