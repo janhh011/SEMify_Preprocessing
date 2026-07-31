@@ -419,7 +419,7 @@ def _pdf_meta(pdf_path_str: str) -> tuple[int, list[tuple[float, float]]]:
         cached = sem_state.pdf_meta_cache.get(pdf_path_str)
     if cached is not None:
         return cached
-    with pdfium.PdfDocument(pdf_path_str) as pdf_doc:
+    with sem_state.pdfium_lock, pdfium.PdfDocument(pdf_path_str) as pdf_doc:
         meta = (len(pdf_doc), [page.get_size() for page in pdf_doc])
     with sem_state.pdf_meta_lock:
         sem_state.pdf_meta_cache[pdf_path_str] = meta
@@ -427,9 +427,9 @@ def _pdf_meta(pdf_path_str: str) -> tuple[int, list[tuple[float, float]]]:
 
 
 def render_pdf_page(pdf_path_str: str, page_no: int, scale: float):
-    """Rasterise a single page. Safe to call from any thread (opens its own
-    document); callers that want caching should use get_rendered_page."""
-    with pdfium.PdfDocument(pdf_path_str) as pdf_doc:
+    """Rasterise a single page. Safe to call from any thread — pdfium access is
+    serialised; callers that want caching should use get_rendered_page."""
+    with sem_state.pdfium_lock, pdfium.PdfDocument(pdf_path_str) as pdf_doc:
         # to_pil() copies the bitmap, so the image outlives the document.
         return pdf_doc[page_no - 1].render(scale=scale).to_pil()
 
@@ -1090,9 +1090,14 @@ def render_comparison_gallery(pdf_path: Path) -> None:
         with st.spinner("Finishing analysis of marked figures…"):
             reconcile_pending_markers(block=True)
 
-    if st.button("← Back to marking"):
-        st.session_state.stage = "marking"
-        st.rerun()
+    back_col, _rest = st.columns([1, 4])
+    with back_col:
+        if st.button(
+            "← Back to marking", key="back_to_marking_button", use_container_width=True
+        ):
+            st.session_state.stage = "marking"
+            st.rerun()
+    st.divider()
 
     if not markers:
         st.info("No candidates marked. Use 'Disregard PDF' in the sidebar, or go back to mark some.")
@@ -1452,7 +1457,9 @@ def main() -> None:
         _html(
             """
         <style>
-        .block-container { padding-top: 0.6rem; padding-bottom: 0.8rem; max-width: 1500px; }
+        /* Streamlit's header is 60px tall and absolutely positioned, so it sits
+           on top of the page; clear it or the first element is cut off. */
+        .block-container { padding-top: 4rem; padding-bottom: 0.8rem; max-width: 1500px; }
 
         /* Muted, slightly smaller secondary text (page counts, statuses). */
         [data-testid="stCaptionContainer"] p { color: #6C6C79; font-size: 0.8rem;
@@ -1465,13 +1472,24 @@ def main() -> None:
 
         .stButton button { font-weight: 500; }
 
+        /* Give the back button a visible outline so it does not read as
+           plain text next to the primary Confirm action. */
+        .st-key-back_to_marking_button button { border: 1px solid #C7CAD3;
+             background: #FFFFFF; color: #3C3C46; }
+        .st-key-back_to_marking_button button:hover { border-color: #1E64E6;
+             color: #1E64E6; }
+
         hr { margin: 0.5rem 0; border-color: #E8E9EE; }
 
         /* Size the viewer to the window so the buttons under it stay on
-           screen without scrolling. The px height passed to st.container is
-           the fallback if this rule ever stops matching. */
-        .st-key-pdf_viewer { height: calc(100vh - 155px) !important; }
-        .st-key-pdf_viewer > div { height: 100% !important; }
+           screen without scrolling. st.container(height=...) sets a flex-basis
+           on the wrapper *around* the keyed element, so the height has to be
+           overridden there — setting it on the element itself does nothing.
+           The px height passed to st.container remains the fallback. */
+        [data-testid="stLayoutWrapper"]:has(> .st-key-pdf_viewer) {
+             flex: 0 0 calc(100vh - 210px) !important;
+             height: calc(100vh - 210px) !important; }
+        .st-key-pdf_viewer { height: 100% !important; }
         </style>
             """
         ),

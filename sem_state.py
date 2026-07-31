@@ -26,6 +26,11 @@ doi_cache_lock = threading.Lock()
 in_flight_pdfs: set[str] = set()
 in_flight_lock = threading.Lock()
 
+# pdfium is a C library and is not safe to call from two threads at once.
+# The UI thread rasterises pages while the worker thread crops and reads page
+# sizes, which segfaulted the process. Every pdfium call takes this lock.
+pdfium_lock = threading.RLock()
+
 # Page count + per-page point sizes per PDF: {path: (n_pages, [(w, h), ...])}.
 # Only immutable plain data is cached, never the pdfium document object, which
 # is not safe to share across threads.
