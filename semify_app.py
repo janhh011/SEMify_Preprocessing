@@ -24,8 +24,11 @@ DISREGARD_DIR = Path("disregard")
 PROCESSED_DIR = Path("processed_data")
 COMPLETED_DIR = Path("completed")
 LOG_PATH = PROCESSED_DIR / "log.jsonl"
-LOGO_PATH = Path("docs/logo.png")
-LOGO_ICON_PATH = Path("docs/logo-icon.png")
+# Resolved against this file, not the working directory, so the logo still
+# loads when Streamlit is launched from elsewhere.
+_ASSETS = Path(__file__).resolve().parent / "docs"
+LOGO_PATH = _ASSETS / "logo.png"
+LOGO_ICON_PATH = _ASSETS / "logo-icon.png"
 
 ZOOM_LEVELS = {"75%": 0.75, "100%": 1.0, "150%": 1.5, "200%": 2.0}
 MARKER_RADIUS_PX = 14
@@ -410,8 +413,8 @@ def _pdf_meta(pdf_path_str: str) -> tuple[int, list[tuple[float, float]]]:
         cached = sem_state.pdf_meta_cache.get(pdf_path_str)
     if cached is not None:
         return cached
-    pdf_doc = pdfium.PdfDocument(pdf_path_str)
-    meta = (len(pdf_doc), [page.get_size() for page in pdf_doc])
+    with pdfium.PdfDocument(pdf_path_str) as pdf_doc:
+        meta = (len(pdf_doc), [page.get_size() for page in pdf_doc])
     with sem_state.pdf_meta_lock:
         sem_state.pdf_meta_cache[pdf_path_str] = meta
     return meta
@@ -420,8 +423,9 @@ def _pdf_meta(pdf_path_str: str) -> tuple[int, list[tuple[float, float]]]:
 def render_pdf_page(pdf_path_str: str, page_no: int, scale: float):
     """Rasterise a single page. Safe to call from any thread (opens its own
     document); callers that want caching should use get_rendered_page."""
-    pdf_doc = pdfium.PdfDocument(pdf_path_str)
-    return pdf_doc[page_no - 1].render(scale=scale).to_pil()
+    with pdfium.PdfDocument(pdf_path_str) as pdf_doc:
+        # to_pil() copies the bitmap, so the image outlives the document.
+        return pdf_doc[page_no - 1].render(scale=scale).to_pil()
 
 
 def get_rendered_page(pdf_path: Path, page_no: int, scale: float):
@@ -1219,6 +1223,29 @@ def commit_disregard(pdf_path: Path) -> None:
     st.rerun()
 
 
+def render_empty_state() -> None:
+    """Shown when the queue is empty: a centred mark, nothing else."""
+    st.markdown(
+        """
+        <div style="display:flex; flex-direction:column; align-items:center;
+                    justify-content:center; height:calc(100vh - 220px); gap:0.85rem;">
+          <svg width="52" height="52" viewBox="0 0 24 24" fill="none"
+               stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10" stroke="#C9DCFA" stroke-width="1.6"/>
+            <path d="M7.7 12.4l2.9 2.9 5.7-5.9" stroke="#1E64E6" stroke-width="1.9"/>
+          </svg>
+          <div style="color:#3C3C46; font-size:0.98rem; font-weight:500;">
+            No PDFs remaining
+          </div>
+          <div style="color:#8A8A96; font-size:0.82rem;">
+            Add files to <code style="font-size:0.82rem;">input_pdfs/</code> and refresh
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 @st.fragment(run_every=1.5)
 def _wait_for_background() -> None:
     """Shown when every remaining PDF is still finalizing. Polls itself so the
@@ -1276,28 +1303,34 @@ def main() -> None:
     with _in_flight_lock:
         in_flight_count = len(sem_state.in_flight_pdfs)
 
+    # The sidebar is always rendered — an empty one collapses, which hides the
+    # logo that lives in it and leaves the page looking broken.
+    remaining_count = len(list(INPUT_DIR.glob("*.pdf"))) - in_flight_count
+    with st.sidebar:
+        st.header("Pipeline Controls")
+        if pdf_path is None:
+            st.caption("Queue empty")
+        else:
+            st.caption(f"{pdf_path.name}")
+            st.caption(f"{remaining_count} PDF(s) remaining in queue")
+        if in_flight_count:
+            st.caption(f"{in_flight_count} PDF(s) finishing up in the background")
+
+        if pdf_path is not None:
+            zoom_label = st.selectbox("Zoom", list(ZOOM_LEVELS.keys()), index=1)
+            st.session_state.zoom_scale = ZOOM_LEVELS[zoom_label]
+
+            st.divider()
+            bind_shortcut("d", "disregard_button")
+            if st.button("Disregard PDF  `D`", key="disregard_button"):
+                commit_disregard(pdf_path)
+
     if pdf_path is None:
         if in_flight_count:
             _wait_for_background()
         else:
-            st.success("All PDFs processed.")
+            render_empty_state()
         return
-
-    remaining_count = len(list(INPUT_DIR.glob("*.pdf"))) - in_flight_count
-    with st.sidebar:
-        st.header("Pipeline Controls")
-        st.caption(f"{pdf_path.name}")
-        st.caption(f"{remaining_count} PDF(s) remaining in queue")
-        if in_flight_count:
-            st.caption(f"{in_flight_count} PDF(s) finishing up in the background")
-
-        zoom_label = st.selectbox("Zoom", list(ZOOM_LEVELS.keys()), index=1)
-        st.session_state.zoom_scale = ZOOM_LEVELS[zoom_label]
-
-        st.divider()
-        bind_shortcut("d", "disregard_button")
-        if st.button("Disregard PDF  `D`", key="disregard_button"):
-            commit_disregard(pdf_path)
 
     if st.session_state.stage == "marking":
         render_marking_view(pdf_path)
