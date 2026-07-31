@@ -802,6 +802,60 @@ def apply_favicon() -> None:
     )
 
 
+def enable_drag_preview() -> None:
+    """Draw the selection rectangle while dragging in the recrop view.
+
+    The click-capture component only reports the box on mouse-up and shows
+    nothing during the drag, so there is no way to see what is being selected.
+    Its iframe is same-origin, so an overlay can be attached to the <img>
+    inside it. Purely visual — the crop still comes from the coordinates the
+    component reports.
+    """
+    components.html(
+        """
+        <script>
+        (function () {
+            const doc = window.parent.document;
+            doc.querySelectorAll('iframe').forEach(function (frame) {
+                let d;
+                try { d = frame.contentDocument; } catch (err) { return; }
+                if (!d) return;
+                const img = d.getElementById('image');
+                if (!img || img.dataset.semifyDrag) return;
+                img.dataset.semifyDrag = '1';
+
+                const box = d.createElement('div');
+                box.style.cssText = 'position:fixed; display:none; z-index:9999;' +
+                    'border:2px solid #1E64E6; background:rgba(30,100,230,0.14);' +
+                    'pointer-events:none; border-radius:2px;';
+                d.body.appendChild(box);
+
+                let sx = 0, sy = 0, active = false;
+                const draw = function (e) {
+                    box.style.left = Math.min(sx, e.clientX) + 'px';
+                    box.style.top = Math.min(sy, e.clientY) + 'px';
+                    box.style.width = Math.abs(e.clientX - sx) + 'px';
+                    box.style.height = Math.abs(e.clientY - sy) + 'px';
+                };
+                const stop = function () { active = false; box.style.display = 'none'; };
+
+                img.addEventListener('mousedown', function (e) {
+                    active = true; sx = e.clientX; sy = e.clientY;
+                    box.style.display = 'block'; draw(e);
+                });
+                d.addEventListener('mousemove', function (e) { if (active) draw(e); });
+                // The drag often ends outside the iframe, so listen in both.
+                d.addEventListener('mouseup', stop);
+                doc.addEventListener('mouseup', stop);
+            });
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
 def render_shortcuts() -> None:
     """Install this page's keyboard shortcuts. Call once, after the buttons render.
 
@@ -1131,6 +1185,9 @@ def render_recrop_view(pdf_path: Path) -> None:
                 use_column_width="auto",
                 png_compression_level=PAGE_PNG_COMPRESSION,
             )
+
+    # After the component exists, so its iframe can be found.
+    enable_drag_preview()
 
     if not value or value.get("x1") is None:
         return
