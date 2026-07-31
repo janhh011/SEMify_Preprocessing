@@ -1,0 +1,18 @@
+[theme]
+base = "light"
+
+# Matches the blue used for page markers and the gallery selection border,
+# so the chrome and the rendered images share one accent colour.
+primaryColor = "#1E64E6"
+linkColor = "#1E64E6"
+
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F6F7F9"
+textColor = "#1A1A22"
+borderColor = "#E2E3E9"
+
+baseFontSize = 15
+baseRadius = "medium"
+buttonRadius = "medium"
+showWidgetBorder = true
+showSidebarBorder = true

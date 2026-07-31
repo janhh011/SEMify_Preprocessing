@@ -1231,13 +1231,28 @@ def _wait_for_background() -> None:
 
 def main() -> None:
     st.set_page_config(page_title="SEM Triage", layout="wide")
-    # Streamlit reserves a large default top margin above the page content —
-    # shrink it (and the title's own margin) so the viewer sits higher.
+    # Presentation only — spacing, weights and muted tones. Colours come from
+    # .streamlit/config.toml. Streamlit reserves a large top margin by
+    # default; trimming it keeps the viewer high on the page.
     st.markdown(
         """
         <style>
-        .block-container { padding-top: 1.5rem; }
-        h1 { margin-top: 0; margin-bottom: 0.5rem; padding-top: 0; }
+        .block-container { padding-top: 1.1rem; padding-bottom: 2.5rem; max-width: 1500px; }
+
+        h1 { font-size: 1.4rem; font-weight: 600; letter-spacing: -0.015em;
+             margin: 0 0 0.15rem; padding-top: 0; }
+
+        /* Muted, slightly smaller secondary text (page counts, statuses). */
+        [data-testid="stCaptionContainer"] p { color: #6C6C79; font-size: 0.82rem; }
+
+        /* Section labels in the sidebar read as labels, not headings. */
+        [data-testid="stSidebar"] h2 { font-size: 0.78rem; font-weight: 600;
+             text-transform: uppercase; letter-spacing: 0.09em; color: #6C6C79; }
+        [data-testid="stSidebar"] .block-container { padding-top: 1.6rem; }
+
+        .stButton button { font-weight: 500; }
+
+        hr { margin: 0.85rem 0; border-color: #E8E9EE; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1249,6 +1264,7 @@ def main() -> None:
     pdf_path = get_or_advance_current_pdf()
 
     st.title("SEM Diagram Triage")
+    st.caption("Mark structural equation model figures · docling · Crossref")
 
     with _in_flight_lock:
         in_flight_count = len(sem_state.in_flight_pdfs)
