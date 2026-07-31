@@ -1,3 +1,5 @@
 docling
 streamlit
 requests
+pypdfium2
+streamlit-image-coordinates

@@ -4,5 +4,6 @@ input_pdfs/*.pdf
 disregard/*.pdf
 completed/*.pdf
 processed_data/
-output/
 .DS_Store
+# Local-only config (contains a personal email for the Crossref polite pool)
+.env
