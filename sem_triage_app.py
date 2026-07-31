@@ -869,7 +869,7 @@ def render_marking_view(pdf_path: Path) -> None:
     # Fixed-height, bordered container: reserves the same vertical space
     # regardless of page aspect ratio/zoom, so the nav/compare buttons below
     # never shift as pages change or the image loads.
-    with st.container(height=VIEWER_HEIGHT_PX, border=True):
+    with st.container(height=VIEWER_HEIGHT_PX, border=True, key="pdf_viewer"):
         left, center, right = st.columns([1, 2, 1])
         with center:
             st.caption(f"Page {page_no} of {n_pages}")
@@ -1040,7 +1040,7 @@ def render_recrop_view(pdf_path: Path) -> None:
 
     page_img = get_rendered_page(pdf_path, page_no, scale)
 
-    with st.container(height=VIEWER_HEIGHT_PX, border=True):
+    with st.container(height=VIEWER_HEIGHT_PX, border=True, key="pdf_viewer"):
         left, center, right = st.columns([1, 2, 1])
         with center:
             value = streamlit_image_coordinates(
@@ -1237,13 +1237,15 @@ def main() -> None:
     st.markdown(
         """
         <style>
-        .block-container { padding-top: 1.1rem; padding-bottom: 2.5rem; max-width: 1500px; }
+        .block-container { padding-top: 0.6rem; padding-bottom: 0.8rem; max-width: 1500px; }
 
-        h1 { font-size: 1.4rem; font-weight: 600; letter-spacing: -0.015em;
-             margin: 0 0 0.15rem; padding-top: 0; }
+        /* Small header — the page viewer is the focus, not the title. */
+        h1 { font-size: 0.95rem; font-weight: 600; letter-spacing: 0.01em;
+             margin: 0 0 0.3rem; padding-top: 0; color: #55555F; }
 
         /* Muted, slightly smaller secondary text (page counts, statuses). */
-        [data-testid="stCaptionContainer"] p { color: #6C6C79; font-size: 0.82rem; }
+        [data-testid="stCaptionContainer"] p { color: #6C6C79; font-size: 0.8rem;
+             margin-bottom: 0.15rem; }
 
         /* Section labels in the sidebar read as labels, not headings. */
         [data-testid="stSidebar"] h2 { font-size: 0.78rem; font-weight: 600;
@@ -1252,7 +1254,13 @@ def main() -> None:
 
         .stButton button { font-weight: 500; }
 
-        hr { margin: 0.85rem 0; border-color: #E8E9EE; }
+        hr { margin: 0.5rem 0; border-color: #E8E9EE; }
+
+        /* Size the viewer to the window so the buttons under it stay on
+           screen without scrolling. The px height passed to st.container is
+           the fallback if this rule ever stops matching. */
+        .st-key-pdf_viewer { height: calc(100vh - 190px) !important; }
+        .st-key-pdf_viewer > div { height: 100% !important; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1264,7 +1272,6 @@ def main() -> None:
     pdf_path = get_or_advance_current_pdf()
 
     st.title("SEM Diagram Triage")
-    st.caption("Mark structural equation model figures · docling · Crossref")
 
     with _in_flight_lock:
         in_flight_count = len(sem_state.in_flight_pdfs)
