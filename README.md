@@ -1,21 +1,16 @@
 # SEM Diagram Triage
 
-Extracts Structural Equation Model diagrams from academic PDFs, with a human deciding which figures
+Extracts Structural Equation Model diagrams from academic PDFs, with a person deciding which figures
 matter.
 
-**In:** a folder of PDFs.
-**You:** click the figures worth keeping.
-**Out:** per figure, a cropped PNG and a matching TXT holding the paper's DOI, authors, journal and
-the section of text the figure sits in — sized to be fed to a Claude API or batch job later.
+![A folder of PDFs, triaged by hand, into cropped figures with DOI, authors, journal and section text](docs/overview.png)
 
-```mermaid
-flowchart LR
-    A["input_pdfs/<br/>*.pdf"] --> B["you<br/>mark · compare · confirm"]
-    B --> C["processed_data/<br/>figure.png + figure.txt<br/>DOI · authors · journal · section text"]
-    C --> D["downstream<br/>Claude API / batch job"]
-```
+A folder of PDFs goes in. Each kept figure comes out as a cropped PNG plus a TXT holding the paper's
+DOI, authors, journal and the section of text the figure sits in — ready to hand to a Claude API or
+batch job later.
 
-`docling` only runs on pages you actually click, in a background thread, so the UI does not block.
+`docling` only runs on pages that are actually clicked, in a background thread, so the UI does not
+block.
 
 ---
 
