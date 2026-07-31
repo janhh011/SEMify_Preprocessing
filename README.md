@@ -5,6 +5,15 @@ matter.
 
 ![A folder of PDFs, sorted by hand, into cropped figures with DOI, authors, journal and section text](docs/overview.png)
 
+### Demo
+
+<a href="https://youtu.be/EYGeeshKDPs">
+  <img src="https://img.youtube.com/vi/EYGeeshKDPs/maxresdefault.jpg"
+       width="600" alt="Watch SEMify in use">
+</a>
+
+▶ [Watch SEMify in use](https://youtu.be/EYGeeshKDPs)
+
 ---
 
 ## Workflow
