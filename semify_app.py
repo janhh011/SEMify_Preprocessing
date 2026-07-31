@@ -42,8 +42,13 @@ GALLERY_THUMB_SIZE = (320, 240)
 # Fixed column count: sizing the row to the number of candidates would give a
 # lone candidate a full-page-width column.
 GALLERY_COLUMNS = 4
-# Rendered pages kept in memory per session (~4 MB each at 200%).
-PAGE_CACHE_MAX_ENTRIES = 8
+# Rendered pages kept in memory per session (~4 MB each at 200%). Holds the
+# current page plus its prefetched neighbours at a couple of zoom levels.
+PAGE_CACHE_MAX_ENTRIES = 12
+# The component defaults to 0 (no compression), which puts ~1.4 MB on the
+# wire per page at 100% zoom and ~5.6 MB at 200%. Level 1 is 5-8x smaller
+# and no slower to encode, which is what made paging feel laggy.
+PAGE_PNG_COMPRESSION = 1
 # Resolution the manual re-crop is cut from, independent of viewing zoom.
 RECROP_OUTPUT_SCALE = 3.0
 # Ignore drags smaller than this (in displayed pixels) as accidental clicks.
@@ -440,6 +445,24 @@ def get_rendered_page(pdf_path: Path, page_no: int, scale: float):
     else:
         cache[key] = cache.pop(key)  # mark as most recently used
     return cache[key]
+
+
+def prefetch_neighbour_pages(pdf_path: Path, page_no: int, n_pages: int, scale: float) -> None:
+    """Warm the cache for the pages either side of this one.
+
+    Called after the current page has been sent to the browser, so the raster
+    cost lands between clicks instead of inside one. Main thread only — pdfium
+    is not safe to drive from several threads at once.
+    """
+    for neighbour in (page_no + 1, page_no - 1):
+        if 1 <= neighbour <= n_pages:
+            key = (str(pdf_path), neighbour, scale)
+            if key not in st.session_state.page_render_cache:
+                try:
+                    get_rendered_page(pdf_path, neighbour, scale)
+                except Exception as exc:  # never let a prefetch break the page
+                    print(f"[prefetch] page {neighbour}: {exc}")
+                    return
 
 
 def get_page_point_size(pdf_path: Path, page_no: int) -> tuple[float, float]:
@@ -887,7 +910,10 @@ def render_marking_view(pdf_path: Path) -> None:
             marked_img = draw_markers_on_page(raw_img, pdf_path, page_no)
 
             with placeholder:
-                value = streamlit_image_coordinates(marked_img, key=f"page_{page_no}")
+                value = streamlit_image_coordinates(
+                    marked_img, key=f"page_{page_no}",
+                    png_compression_level=PAGE_PNG_COMPRESSION,
+                )
 
     if value is not None:
         # NB: the component's timestamp field is "unix_time", not "time" —
@@ -936,6 +962,10 @@ def render_marking_view(pdf_path: Path) -> None:
     else:
         st.caption("Click on a figure above to mark it as a candidate SEM diagram, "
                    "or press D to disregard this PDF.")
+
+    # Last, so this page is already on screen: raster the adjacent pages so
+    # the next Previous/Next click reads them straight from cache.
+    prefetch_neighbour_pages(pdf_path, page_no, n_pages, scale)
 
 
 def render_comparison_gallery(pdf_path: Path) -> None:
@@ -1054,6 +1084,7 @@ def render_recrop_view(pdf_path: Path) -> None:
                 key=f"recrop_canvas_{number}_{page_no}_{scale}",
                 click_and_drag=True,
                 use_column_width="auto",
+                png_compression_level=PAGE_PNG_COMPRESSION,
             )
 
     if not value or value.get("x1") is None:
@@ -1223,26 +1254,46 @@ def commit_disregard(pdf_path: Path) -> None:
     st.rerun()
 
 
-def render_empty_state() -> None:
-    """Shown when the queue is empty: a centred mark, nothing else."""
+_CHECK_SVG = """
+  <svg width="52" height="52" viewBox="0 0 24 24" fill="none"
+       stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="10" stroke="#C9DCFA" stroke-width="1.6"/>
+    <path d="M7.7 12.4l2.9 2.9 5.7-5.9" stroke="#1E64E6" stroke-width="1.9"/>
+  </svg>
+"""
+
+_SPINNER_SVG = """
+  <svg width="52" height="52" viewBox="0 0 24 24" fill="none"
+       style="animation: semify-spin 1.1s linear infinite;">
+    <circle cx="12" cy="12" r="10" stroke="#E2E5EC" stroke-width="1.8"/>
+    <path d="M12 2a10 10 0 0 1 10 10" stroke="#1E64E6" stroke-width="1.8"
+          stroke-linecap="round"/>
+  </svg>
+  <style>@keyframes semify-spin { to { transform: rotate(360deg); } }</style>
+"""
+
+
+def _centred_notice(svg: str, title: str, subtitle: str) -> None:
+    """One centred mark with a line of text under it — used for every state
+    where there is no page to show."""
     st.markdown(
-        """
+        f"""
         <div style="display:flex; flex-direction:column; align-items:center;
                     justify-content:center; height:calc(100vh - 220px); gap:0.85rem;">
-          <svg width="52" height="52" viewBox="0 0 24 24" fill="none"
-               stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10" stroke="#C9DCFA" stroke-width="1.6"/>
-            <path d="M7.7 12.4l2.9 2.9 5.7-5.9" stroke="#1E64E6" stroke-width="1.9"/>
-          </svg>
-          <div style="color:#3C3C46; font-size:0.98rem; font-weight:500;">
-            No PDFs remaining
-          </div>
-          <div style="color:#8A8A96; font-size:0.82rem;">
-            Add files to <code style="font-size:0.82rem;">input_pdfs/</code> and refresh
-          </div>
+          {svg}
+          <div style="color:#3C3C46; font-size:0.98rem; font-weight:500;">{title}</div>
+          <div style="color:#8A8A96; font-size:0.82rem;">{subtitle}</div>
         </div>
         """,
         unsafe_allow_html=True,
+    )
+
+
+def render_empty_state() -> None:
+    _centred_notice(
+        _CHECK_SVG,
+        "No PDFs remaining",
+        'Add files to <code style="font-size:0.82rem;">input_pdfs/</code> and refresh',
     )
 
 
@@ -1253,7 +1304,11 @@ def _wait_for_background() -> None:
     with _in_flight_lock:
         remaining = len(sem_state.in_flight_pdfs)
     if remaining:
-        st.info(f"Finishing up {remaining} PDF(s) in the background…")
+        _centred_notice(
+            _SPINNER_SVG,
+            f"Finishing up {remaining} PDF{'s' if remaining != 1 else ''}",
+            "Saving the figures and looking up the DOI",
+        )
     else:
         st.rerun(scope="app")
 
@@ -1309,12 +1364,14 @@ def main() -> None:
     with st.sidebar:
         st.header("Pipeline Controls")
         if pdf_path is None:
+            # Background progress is shown in the centre of the page instead,
+            # so the sidebar does not repeat it.
             st.caption("Queue empty")
         else:
             st.caption(f"{pdf_path.name}")
             st.caption(f"{remaining_count} PDF(s) remaining in queue")
-        if in_flight_count:
-            st.caption(f"{in_flight_count} PDF(s) finishing up in the background")
+            if in_flight_count:
+                st.caption(f"{in_flight_count} PDF(s) finishing up in the background")
 
         if pdf_path is not None:
             zoom_label = st.selectbox("Zoom", list(ZOOM_LEVELS.keys()), index=1)
