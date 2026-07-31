@@ -5,13 +5,6 @@ matter.
 
 ![A folder of PDFs, triaged by hand, into cropped figures with DOI, authors, journal and section text](docs/overview.png)
 
-A folder of PDFs goes in. Each kept figure comes out as a cropped PNG plus a TXT holding the paper's
-DOI, authors, journal and the section of text the figure sits in — ready to hand to a Claude API or
-batch job later.
-
-`docling` only runs on pages that are actually clicked, in a background thread, so the UI does not
-block.
-
 ---
 
 ## Workflow
@@ -25,21 +18,9 @@ extraction finish in the background.
 | --- | --- |
 | **←** / **→** | Previous / next page |
 | **Enter** | Advance (marking → compare → save) |
-| **R** | Recrop the selected figure |
+| **R** | Recrop — drag a box when the automatic crop is wrong |
 | **D** | Disregard the PDF → `disregard/` |
 | **Esc** | Cancel a recrop |
-
-**Marking.** Clicking a figure drops a numbered marker and starts a `docling` pass on that page
-alone. Keep clicking and paging; a marker shows `…` until its crop is ready.
-
-**Comparing.** Candidates appear side by side at a uniform size, captioned with the figure caption
-`docling` found. Click to select; select as many as you want, each saved separately. A single
-candidate is selected automatically.
-
-**Recropping.** Automatic detection misses on some layouts, e.g. multi-panel figures. Press **R** and
-drag a box. The crop is cut from a fresh high-resolution render, so it is identical whether you drew
-it at 75% or 200% zoom. A candidate whose crop failed is labelled *extraction failed — press R to
-redraw* and cannot be confirmed until redrawn.
 
 ---
 
@@ -48,25 +29,10 @@ redraw* and cannot be confirmed until redrawn.
 ```
 processed_data/
 ├── paper_m1.png     cropped figure
-├── paper_m1.txt     metadata + context
+├── paper_m1.txt     DOI, authors, journal, page-1 text, section text
 ├── paper_m3.png     second figure from the same paper
 ├── paper_m3.txt
 └── log.jsonl        one line per saved figure
-```
-
-```text
-Title: Trust in Automation: Integrating Empirical Evidence on Factors That Influence Trust
-Authors: Kevin Anthony Hoff; Masooda Bashir
-Journal: Human Factors: The Journal of the Human Factors and Ergonomics Society
-DOI: 10.1177/0018720814547570
-DOI source: printed-in-pdf (Crossref-confirmed)
-
---- First page text ---
-(all of page 1 — title, authors, abstract …)
-
---- Section containing the figure (page 7) ---
-(the section the figure sits in, from its heading to the next one,
- across however many pages that spans)
 ```
 
 The PDF then moves to `completed/`, or `disregard/` if skipped.
@@ -75,8 +41,8 @@ The PDF then moves to `completed/`, or `disregard/` if skipped.
 | --- | --- |
 | `input_pdfs/` | Queue — drop PDFs here |
 | `processed_data/` | Output PNG + TXT pairs, and `log.jsonl` |
-| `completed/` | PDFs you kept a figure from |
-| `disregard/` | PDFs you skipped |
+| `completed/` | PDFs a figure was kept from |
+| `disregard/` | Skipped PDFs |
 
 ---
 
@@ -88,7 +54,7 @@ one used is recorded in the `DOI source:` line:
 1. **DOI printed in the paper**, confirmed against Crossref.
 2. **DOI printed in the paper, unconfirmed** — if Crossref is unreachable or does not know it.
 3. **Crossref title search** — accepted only above 0.75 title similarity.
-4. **OpenAlex title search** — same similarity gate; covers papers Crossref's title index misses.
+4. **OpenAlex title search** — same gate; covers papers Crossref's title index misses.
 5. Otherwise `unknown`. Some papers have no DOI.
 
 Lookups are cached per paper: five figures from one PDF cause one request.
@@ -97,8 +63,9 @@ Lookups are cached per paper: five figures from one PDF cause one request.
 
 ## Notes
 
+- `docling` only runs on pages that are clicked, in a background thread, so the UI does not block.
 - Markers live in memory. Refreshing mid-paper restarts that PDF; confirmed papers are already on disk.
-- Shortcuts do not fire while you are typing in a field.
+- Shortcuts do not fire while typing in a field.
 - OCR is off: it took a page from ~2.5 s to ~21 s, and published PDFs carry a text layer. Scanned
   PDFs will not yield text.
 - `.env` is gitignored.
@@ -125,16 +92,17 @@ CROSSREF_MAILTO=your@email.address
 
 ## Worked example
 
-Two real papers, using the tool's actual output.
+Two real papers, showing the tool's actual output.
 
-### One figure, DOI resolved by the OpenAlex fallback
+### One figure — DOI resolved by the OpenAlex fallback
 
-`MISQ_1990_14_3_1.pdf` — one figure marked on page 4.
+`MISQ_1990_14_3_1.pdf`, figure on page 4:
 
-![Extracted research model, Bergeron et al. 1990](docs/example-1990-fig1.png)
+<img src="docs/example-1990-fig1.png" width="380"
+     alt="Extracted research model, Bergeron et al. 1990">
 
-<sub>Extracted from Bergeron, Rivard & de Serre (1990), *MIS Quarterly*,
-<a href="https://doi.org/10.2307/248887">10.2307/248887</a>.</sub>
+<sub>Bergeron, Rivard & de Serre (1990), *MIS Quarterly*,
+<a href="https://doi.org/10.2307/248887">10.2307/248887</a></sub>
 
 ```text
 Title: Investigating the Support Role of the Information Center
@@ -146,55 +114,28 @@ DOI source: openalex title match
 --- Section containing the figure (page 4) ---
 Location
 
-According to several authors, an appropriate location for the IC is critical. Providing users
-with distributed support services was the first recommendation made by Rockart and Flannery
-(1983) about support. …
+According to several authors, an appropriate location for the IC is critical. …
 ```
 
-Crossref's title search did not match this 1990 paper confidently, so step 4 resolved it. Without
-that fallback the line would read `unknown`. The captured section starts at its real heading,
-**Location**, not at an arbitrary page boundary.
+Crossref did not match this 1990 paper confidently, so step 4 resolved it — otherwise the line would
+read `unknown`. The section starts at its real heading, **Location**, not a page boundary.
 
 ### Two figures from one paper
 
-`MISQ_1991_15_1_7.pdf` — figures on pages 3 and 7, both selected.
+`MISQ_1991_15_1_7.pdf`, figures on pages 3 and 7, both selected — each saved with its own section,
+sharing one DOI lookup.
 
 | `…_m1.png` — page 3 | `…_m2.png` — page 7 |
 | --- | --- |
-| ![Conceptual model of PC utilization](docs/example-1991-fig1.png) | ![Research model of PC utilization](docs/example-1991-fig2.png) |
+| <img src="docs/example-1991-fig1.png" width="320" alt="Conceptual model of PC utilization"> | <img src="docs/example-1991-fig2.png" width="260" alt="Research model of PC utilization"> |
 
-<sub>Extracted from Thompson, Higgins & Howell (1991), *MIS Quarterly*,
-<a href="https://doi.org/10.2307/249443">10.2307/249443</a>.</sub>
+<sub>Thompson, Higgins & Howell (1991), *MIS Quarterly*,
+<a href="https://doi.org/10.2307/249443">10.2307/249443</a></sub>
 
-Both files share paper-level metadata from a single Crossref lookup, but each carries its own
-figure's section:
-
-```text
-Title: Personal Computing: Toward a Conceptual Model of Utilization1
-Authors: Ronald L. Thompson; Christopher A. Higgins; Jane M. Howell
-Journal: MIS Quarterly
-DOI: 10.2307/249443
-DOI source: crossref title match
-```
-
-The trailing `1` is a footnote marker in the paper's own title; the tool records what it read.
-
-### Resulting files
-
-```text
-processed_data/
-├── MISQ_1990_14_3_1_m1.png   MISQ_1990_14_3_1_m1.txt
-├── MISQ_1991_15_1_7_m1.png   MISQ_1991_15_1_7_m1.txt
-├── MISQ_1991_15_1_7_m2.png   MISQ_1991_15_1_7_m2.txt
-└── log.jsonl
-
-completed/
-├── MISQ_1990_14_3_1.pdf
-└── MISQ_1991_15_1_7.pdf
-```
+The resulting `log.jsonl` lines:
 
 ```json
-{"pdf": "MISQ_1990_14_3_1.pdf", "action": "completed", "image": "MISQ_1990_14_3_1_m1.png", "page": 4, "chosen_marker_number": 1, "doi": "10.2307/248887", "doi_source": "openalex title match", "journal": "MIS Quarterly"}
-{"pdf": "MISQ_1991_15_1_7.pdf", "action": "completed", "image": "MISQ_1991_15_1_7_m1.png", "page": 3, "chosen_marker_number": 1, "doi": "10.2307/249443", "doi_source": "crossref title match", "journal": "MIS Quarterly"}
-{"pdf": "MISQ_1991_15_1_7.pdf", "action": "completed", "image": "MISQ_1991_15_1_7_m2.png", "page": 7, "chosen_marker_number": 2, "doi": "10.2307/249443", "doi_source": "crossref title match", "journal": "MIS Quarterly"}
+{"timestamp": "…", "pdf": "MISQ_1990_14_3_1.pdf", "action": "completed", "image": "MISQ_1990_14_3_1_m1.png", "page": 4, "chosen_marker_number": 1, "doi": "10.2307/248887", "doi_source": "openalex title match", "journal": "MIS Quarterly"}
+{"timestamp": "…", "pdf": "MISQ_1991_15_1_7.pdf", "action": "completed", "image": "MISQ_1991_15_1_7_m1.png", "page": 3, "chosen_marker_number": 1, "doi": "10.2307/249443", "doi_source": "crossref title match", "journal": "MIS Quarterly"}
+{"timestamp": "…", "pdf": "MISQ_1991_15_1_7.pdf", "action": "completed", "image": "MISQ_1991_15_1_7_m2.png", "page": 7, "chosen_marker_number": 2, "doi": "10.2307/249443", "doi_source": "crossref title match", "journal": "MIS Quarterly"}
 ```
