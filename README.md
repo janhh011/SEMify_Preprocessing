@@ -14,6 +14,9 @@ matter.
 
 ▶ [Watch SEMify in use](https://youtu.be/EYGeeshKDPs)
 
+<sub>The recording is a little behind the current version — it predates full view (`F`), the page
+fitting the window, and the faster page switching.</sub>
+
 ---
 
 ## Workflow
