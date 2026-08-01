@@ -93,6 +93,8 @@ Lookups are cached per paper: five figures from one PDF cause one request.
 ## Setup
 
 ```bash
+git clone https://github.com/janhh011/SEMify_Preprocessing.git
+cd SEMify_Preprocessing
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
