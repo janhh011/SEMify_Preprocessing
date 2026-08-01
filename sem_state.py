@@ -29,7 +29,27 @@ in_flight_lock = threading.Lock()
 # pdfium is a C library and is not safe to call from two threads at once.
 # The UI thread rasterises pages while the worker thread crops and reads page
 # sizes, which segfaulted the process. Every pdfium call takes this lock.
-pdfium_lock = threading.RLock()
+#
+# It must be *docling's* lock, not one of our own. docling drives pypdfium2
+# too, and serialises its own calls with this object — so a private lock here
+# would guard our calls against each other while leaving them free to run
+# concurrently with docling's. Two locks around one library is the same as no
+# lock: it segfaulted in pdfium's process-global font cache (CFX_Face) when a
+# background finalize loaded a page while the UI rendered the next PDF. The
+# global cache is why two *different* documents still corrupt each other.
+#
+# Never acquire this re-entrantly: docling's is a plain Lock, not an RLock.
+# Every caller in semify_app takes it, uses pdfium, and releases it.
+try:
+    from docling.utils.locks import pypdfium2_lock as pdfium_lock
+except Exception as exc:  # pragma: no cover - docling missing or moved the lock
+    pdfium_lock = threading.Lock()
+    print(
+        "[sem_state] WARNING: could not import docling's pypdfium2 lock "
+        f"({exc}). Falling back to a private lock, which does NOT serialise "
+        "against docling's own pdfium calls — expect segfaults under load. "
+        "Check whether docling.utils.locks moved."
+    )
 
 # Page count + per-page point sizes per PDF: {path: (n_pages, [(w, h), ...])}.
 # Only immutable plain data is cached, never the pdfium document object, which
