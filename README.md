@@ -153,3 +153,10 @@ The figure and text shown in the worked example are taken from:
 
 Copyright remains with the authors and MIS Quarterly. The excerpt is reproduced here only to
 illustrate this tool's output.
+
+---
+
+## License
+
+This tool is released under the [MIT License](LICENSE). The excerpt quoted under **Source** above is
+not covered by it.
