@@ -448,6 +448,13 @@ def get_rendered_page(pdf_path: Path, page_no: int, scale: float):
     return cache[key]
 
 
+def is_page_cached(pdf_path: Path, page_no: int, scale: float) -> bool:
+    """Whether this page is already rastered, so the caller knows there is
+    nothing to wait for. Deliberately does not touch LRU order — this is a
+    question about the cache, not a use of it."""
+    return (str(pdf_path), page_no, scale) in st.session_state.page_render_cache
+
+
 def prefetch_neighbour_pages(pdf_path: Path, page_no: int, n_pages: int, scale: float) -> None:
     """Warm the cache for the pages either side of this one.
 
@@ -703,7 +710,7 @@ def init_session_state() -> None:
     st.session_state.setdefault("recrop_marker_number", None)
     st.session_state.setdefault("last_recrop_drag", None)
     st.session_state.setdefault("pending_shortcuts", [])
-    st.session_state.setdefault("last_click_by_page", {})
+    st.session_state.setdefault("last_click_id", None)
     st.session_state.setdefault("page_render_cache", {})
     st.session_state.setdefault("stage", "marking")
     st.session_state.setdefault("current_marking_page", 1)
@@ -715,7 +722,7 @@ def reset_per_pdf_state() -> None:
     st.session_state.last_gallery_click = {}
     st.session_state.recrop_marker_number = None
     st.session_state.last_recrop_drag = None
-    st.session_state.last_click_by_page = {}
+    st.session_state.last_click_id = None
     st.session_state.page_render_cache = {}
     st.session_state.stage = "marking"
     st.session_state.current_marking_page = 1
@@ -986,18 +993,13 @@ def _compose_gallery_thumbnail(crop_image, selected: bool):
     return canvas
 
 
+# Only ever seen when a page is rastered cold (see is_page_cached). Flat white,
+# matching backgroundColor in .streamlit/config.toml, so the viewer just stays
+# empty inside its border for a moment. The old grey pulsing gradient drew the
+# eye to exactly the gap it was covering, which made paging feel rough.
+# The height is still reserved so the nav buttons below never shift.
 _SKELETON_HTML = f"""
-<div style="height:{VIEWER_HEIGHT_PX - 40}px; border-radius:8px;
-            background: linear-gradient(90deg, rgba(128,128,128,0.12) 25%,
-                        rgba(128,128,128,0.22) 37%, rgba(128,128,128,0.12) 63%);
-            background-size: 400% 100%; animation: sem-skeleton-pulse 1.4s ease infinite;">
-</div>
-<style>
-@keyframes sem-skeleton-pulse {{
-    0% {{ background-position: 100% 50%; }}
-    100% {{ background-position: 0% 50%; }}
-}}
-</style>
+<div style="height:{VIEWER_HEIGHT_PX - 40}px; border-radius:8px; background:#FFFFFF;"></div>
 """
 
 
@@ -1018,15 +1020,25 @@ def render_marking_view(pdf_path: Path) -> None:
         with center:
             st.caption(f"Page {page_no} of {n_pages}")
             placeholder = st.empty()
-            with placeholder:
-                st.markdown(_SKELETON_HTML, unsafe_allow_html=True)
+            # Neighbours are prefetched, so ←/→ is normally a cache hit and
+            # there is nothing to wait for — showing a placeholder then would
+            # flash a blank frame for no reason.
+            if not is_page_cached(pdf_path, page_no, scale):
+                with placeholder:
+                    st.markdown(_SKELETON_HTML, unsafe_allow_html=True)
 
             raw_img = get_rendered_page(pdf_path, page_no, scale)
             marked_img = draw_markers_on_page(raw_img, pdf_path, page_no)
 
             with placeholder:
+                # A constant key, not one per page: a key change makes this a
+                # different Streamlit element, so the iframe is torn down and
+                # remounted (reloading the component bundle) on every page
+                # turn, blanking the viewer. With one stable key the iframe
+                # lives for the whole PDF and only its image swaps, so the
+                # current page stays on screen until the next one paints.
                 value = streamlit_image_coordinates(
-                    marked_img, key=f"page_{page_no}",
+                    marked_img, key="pdf_page",
                     png_compression_level=PAGE_PNG_COMPRESSION,
                 )
 
@@ -1034,9 +1046,14 @@ def render_marking_view(pdf_path: Path) -> None:
         # NB: the component's timestamp field is "unix_time", not "time" —
         # without it, two clicks on the exact same pixel look identical and
         # the second one gets swallowed as a duplicate.
+        #
+        # The id is the click event's own identity and must NOT include
+        # page_no: a stable-key widget replays its last value on every rerun,
+        # including after paging away, so a page-scoped id would read that
+        # stale click as a new one and drop a phantom marker on the new page.
         click_id = (value.get("x"), value.get("y"), value.get("unix_time"))
-        if st.session_state.last_click_by_page.get(page_no) != click_id:
-            st.session_state.last_click_by_page[page_no] = click_id
+        if st.session_state.last_click_id != click_id:
+            st.session_state.last_click_id = click_id
             submit_click(pdf_path, page_no, value["x"], value["y"], scale)
             st.rerun()
 

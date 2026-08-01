@@ -7,3 +7,4 @@ processed_data/
 .DS_Store
 # Local-only config (contains a personal email for the Crossref polite pool)
 .env
+CLAUDE.md
