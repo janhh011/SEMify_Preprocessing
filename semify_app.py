@@ -1705,6 +1705,20 @@ def main() -> None:
         [data-testid="stLayoutWrapper"]:has(> .st-key-pdf_viewer) {
              flex: 0 0 calc(100vh - FOCUS_CHROMEpx) !important;
              height: calc(100vh - FOCUS_CHROMEpx) !important; }
+
+        /* The way out. Pinned to the corner and taken out of the flow, so it
+           reminds without costing the page any height. Dim until hovered so
+           it does not compete with the figure. */
+        .st-key-exit_focus_button { position: fixed !important; right: 16px;
+             bottom: 12px; z-index: 1000; width: auto !important; }
+        .st-key-exit_focus_button button { background: #1A1A22 !important;
+             color: #FFFFFF !important; border: none !important; opacity: 0.45;
+             padding: 0.1rem 0.65rem !important; min-height: 0 !important;
+             transition: opacity 0.15s ease; }
+        .st-key-exit_focus_button button:hover { opacity: 1; }
+        .st-key-exit_focus_button button p { font-size: 0.75rem !important; }
+        .st-key-exit_focus_button code { background: rgba(255,255,255,0.16) !important;
+             color: #FFFFFF !important; }
         </style>
                 """.replace("FOCUS_CHROMEpx", f"{FOCUS_CHROME_PX}px")
             ),
@@ -1753,9 +1767,13 @@ def main() -> None:
             if st.button(
                 "Full view  `F`", key="focus_button", use_container_width=True
             ):
-                st.session_state.focus_mode = not st.session_state.focus_mode
+                st.session_state.focus_mode = True
                 st.rerun()
-            bind_shortcut("f", "focus_button")
+            if not st.session_state.focus_mode:
+                # Leaving is bound to the pill below instead. The shortcut
+                # handler takes the *first* binding for a key, so only ever
+                # register one button per key.
+                bind_shortcut("f", "focus_button")
 
             st.divider()
             bind_shortcut("d", "disregard_button")
@@ -1768,6 +1786,18 @@ def main() -> None:
         else:
             render_empty_state()
         return
+
+    if st.session_state.focus_mode:
+        # Rendered here, outside every stage, so the way out exists in marking,
+        # comparing and recropping alike. It is a real button pinned to the
+        # corner rather than a caption: full view hides the sidebar, so a
+        # reminder that only names the key would strand anyone whose keypress
+        # did not land. Position:fixed keeps it out of the layout, so it costs
+        # the page no height.
+        if st.button("Exit full view  `F`", key="exit_focus_button"):
+            st.session_state.focus_mode = False
+            st.rerun()
+        bind_shortcut("f", "exit_focus_button")
 
     if st.session_state.stage == "marking":
         render_marking_view(pdf_path)
