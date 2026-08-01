@@ -35,10 +35,19 @@ ZOOM_LEVELS = {"75%": 0.75, "100%": 1.0, "150%": 1.5, "200%": 2.0}
 MARKER_RADIUS_PX = 14
 FALLBACK_MATCH_DISTANCE_PT = 40
 FALLBACK_CROP_HALF_SIZE_PT = 100
-VIEWER_HEIGHT_PX = 833  # ~3cm taller than the old 720px, to fit a whole page
+# Fallback only. The real height is calc(100vh - VIEWER_CHROME_PX), set in the
+# stylesheet in main() — st.container needs a number, but the window decides.
+VIEWER_HEIGHT_PX = 833
+# Everything that is not the viewer: the nav row, the Compare button and the
+# block container's padding. Subtracted from the window height, so shrinking
+# these is what makes the page bigger — a portrait page is always height-bound.
+VIEWER_CHROME_PX = 62
+FOCUS_CHROME_PX = 16
+# The bordered container's own padding, between its edge and the page image.
+VIEWER_PADDING_PX = 34
 # Uniform canvas every gallery candidate is letterboxed into, so all thumbnails
-# render at identical size no matter the figure's aspect ratio. Rendered at
-# natural size (never stretched to the column), so this is the size on screen.
+# share one aspect ratio no matter the figure's own. Scaled to the column on
+# screen, so this sets the shape and the render resolution, not the final size.
 GALLERY_THUMB_SIZE = (320, 240)
 # Fixed column count: sizing the row to the number of candidates would give a
 # lone candidate a full-page-width column.
@@ -650,12 +659,21 @@ def _locate_and_crop_job(pdf_path_str: str, page_no: int, x_pt: float, y_pt: flo
             return {"crop_image": None, "status": "error", "caption": None}
 
 
-def submit_click(pdf_path: Path, page_no: int, px: int, py: int, scale: float) -> None:
+def submit_click(
+    pdf_path: Path, page_no: int, px: int, py: int, shown_w: float, shown_h: float
+) -> None:
     """Main-thread only: records a marker immediately (so the numbered circle
     appears right away) and hands the slow docling lookup to the background
-    worker, so the user can keep clicking/navigating without waiting."""
-    x_pt, y_pt = px / scale, py / scale
+    worker, so the user can keep clicking/navigating without waiting.
+
+    Coordinates come back in *displayed* pixels, which is not the rendered size
+    once the page is scaled to fit the viewer — so they are converted through
+    the displayed size the component reports, never through the render scale.
+    render_recrop_view does the same for its drag box.
+    """
     page_w_pt, page_h_pt = get_page_point_size(pdf_path, page_no)
+    x_pt = (px / shown_w) * page_w_pt if shown_w else 0.0
+    y_pt = (py / shown_h) * page_h_pt if shown_h else 0.0
 
     future = get_executor().submit(
         _locate_and_crop_job, str(pdf_path), page_no, x_pt, y_pt, page_h_pt
@@ -712,6 +730,8 @@ def init_session_state() -> None:
     st.session_state.setdefault("pending_shortcuts", [])
     st.session_state.setdefault("last_click_id", None)
     st.session_state.setdefault("page_render_cache", {})
+    st.session_state.setdefault("fit_page", True)
+    st.session_state.setdefault("focus_mode", False)
     st.session_state.setdefault("stage", "marking")
     st.session_state.setdefault("current_marking_page", 1)
 
@@ -802,6 +822,112 @@ def apply_favicon() -> None:
             doc.head.appendChild(link);
             win.__semifyFavicon = true;
         }})();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
+def fit_page_to_viewer() -> None:
+    """Scale the page image to fill the viewer box, without scrolling.
+
+    The component shows its image at natural size, so on a short window the
+    page overflowed and scrolled, and on a tall one it left space unused. The
+    box is sized in `vh` (see the stylesheet in main), so the fit has to happen
+    in the browser: measure the box and cap the <img> against it.
+
+    Same trick as enable_drag_preview — the component's iframe is same-origin,
+    so a <style> can be injected into it. Scales both ways: down when the
+    window is short, up when the box is taller than the render, which is what
+    keeps the page as large as the screen allows. Upscaling costs sharpness;
+    the sidebar zoom raises the render resolution to compensate.
+
+    Clicks stay correct because submit_click converts through the displayed
+    size the component reports back, not through the render scale.
+    """
+    # Stretch the component's iframe over the whole box. Streamlit writes an
+    # inline height onto it from the image's natural height (the component
+    # calls setFrameHeight), and an !important rule in a stylesheet outranks
+    # a plain inline style, so this wins without any JavaScript.
+    #
+    # Sized in vh rather than height:100%, which silently collapses: a
+    # percentage height needs every ancestor to have a definite height, and
+    # Streamlit's wrapper divs do not. vh resolves against the window, so the
+    # ancestor chain is irrelevant.
+    # Scoped to the marking view: the recrop canvas shares the pdf_viewer key
+    # but wants natural size and a scrollbar to aim at.
+    chrome = FOCUS_CHROME_PX if st.session_state.focus_mode else VIEWER_CHROME_PX
+    st.markdown(
+        _html(
+            f"""
+        <style>
+        .st-key-pdf_viewer iframe {{
+             height: calc(100vh - {chrome + VIEWER_PADDING_PX}px) !important;
+             width: 100% !important; }}
+        /* The marking view's column holds two visible things and several
+           zero-height helpers (the style blocks above, the JS components).
+           Streamlit's 15px flex gap applies between all of them, so ~75px of
+           the window was spent on gaps around elements that render nothing.
+           Zero the gap and put back the one that is actually wanted.
+           Scoped to this view: the gallery needs its normal spacing, and
+           tightening it there pulled the thumbnails over their heading. */
+        [data-testid="stVerticalBlock"]:has(
+             > [data-testid="stLayoutWrapper"] > .st-key-nav_row) {{ gap: 0 !important; }}
+        .st-key-nav_row {{ margin-top: 8px; }}
+        </style>
+            """
+        ),
+        unsafe_allow_html=True,
+    )
+    components.html(
+        """
+        <script>
+        (function () {
+            // Static rule, deliberately measuring nothing: an earlier version
+            // read the box height in JS and raced the layout, landing on a
+            // max-height taller than the page, which clamped nothing at all.
+            // Percentages resolve against the iframe, which the stylesheet
+            // above has already pinned to the box, so resizing needs no code.
+            const CSS =
+                'html, body { height: 100%; margin: 0; }' +
+                '#image-container { height: 100%; overflow: hidden;' +
+                ' display: flex; align-items: center; justify-content: center; }' +
+                '#image { max-width: 100% !important; max-height: 100% !important;' +
+                ' width: auto !important; height: auto !important; }';
+
+            function fit() {
+                window.parent.document
+                    .querySelectorAll('.st-key-pdf_viewer iframe')
+                    .forEach(function (frame) {
+                        let d;
+                        try { d = frame.contentDocument; } catch (err) { return; }
+                        if (!d || !d.getElementById('image')) return;
+                        // Re-injecting after a reload is the whole point, so
+                        // this only skips when the style is genuinely present.
+                        if (!d.getElementById('semify-fit')) {
+                            const style = d.createElement('style');
+                            style.id = 'semify-fit';
+                            style.textContent = CSS;
+                            d.head.appendChild(style);
+                        }
+                        // The listener lives on the frame element, which
+                        // outlives the document it contains.
+                        if (!frame.dataset.semifyFitHook) {
+                            frame.dataset.semifyFitHook = '1';
+                            frame.addEventListener('load', fit);
+                        }
+                    });
+            }
+
+            // Runs for as long as this script's own iframe lives, which is
+            // until the next rerun replaces it. Injecting once is not enough:
+            // the component reloads its document when the page image changes,
+            // taking the style with it, and the page then showed at natural
+            // size inside a shorter box — i.e. cropped.
+            fit();
+            setInterval(fit, 300);
+        })();
         </script>
         """,
         height=0,
@@ -1013,34 +1139,36 @@ def render_marking_view(pdf_path: Path) -> None:
 
     value = None
     # Fixed-height, bordered container: reserves the same vertical space
-    # regardless of page aspect ratio/zoom, so the nav/compare buttons below
-    # never shift as pages change or the image loads.
+    # regardless of page aspect ratio/zoom, so the nav buttons below never
+    # shift as pages change or the image loads. No centring columns — they
+    # spent half the width on empty space; the image is centred with CSS.
     with st.container(height=VIEWER_HEIGHT_PX, border=True, key="pdf_viewer"):
-        left, center, right = st.columns([1, 2, 1])
-        with center:
-            st.caption(f"Page {page_no} of {n_pages}")
-            placeholder = st.empty()
-            # Neighbours are prefetched, so ←/→ is normally a cache hit and
-            # there is nothing to wait for — showing a placeholder then would
-            # flash a blank frame for no reason.
-            if not is_page_cached(pdf_path, page_no, scale):
-                with placeholder:
-                    st.markdown(_SKELETON_HTML, unsafe_allow_html=True)
-
-            raw_img = get_rendered_page(pdf_path, page_no, scale)
-            marked_img = draw_markers_on_page(raw_img, pdf_path, page_no)
-
+        placeholder = st.empty()
+        # Neighbours are prefetched, so ←/→ is normally a cache hit and
+        # there is nothing to wait for — showing a placeholder then would
+        # flash a blank frame for no reason.
+        if not is_page_cached(pdf_path, page_no, scale):
             with placeholder:
-                # A constant key, not one per page: a key change makes this a
-                # different Streamlit element, so the iframe is torn down and
-                # remounted (reloading the component bundle) on every page
-                # turn, blanking the viewer. With one stable key the iframe
-                # lives for the whole PDF and only its image swaps, so the
-                # current page stays on screen until the next one paints.
-                value = streamlit_image_coordinates(
-                    marked_img, key="pdf_page",
-                    png_compression_level=PAGE_PNG_COMPRESSION,
-                )
+                st.markdown(_SKELETON_HTML, unsafe_allow_html=True)
+
+        raw_img = get_rendered_page(pdf_path, page_no, scale)
+        marked_img = draw_markers_on_page(raw_img, pdf_path, page_no)
+
+        with placeholder:
+            # A constant key, not one per page: a key change makes this a
+            # different Streamlit element, so the iframe is torn down and
+            # remounted (reloading the component bundle) on every page
+            # turn, blanking the viewer. With one stable key the iframe
+            # lives for the whole PDF and only its image swaps, so the
+            # current page stays on screen until the next one paints.
+            value = streamlit_image_coordinates(
+                marked_img, key="pdf_page",
+                png_compression_level=PAGE_PNG_COMPRESSION,
+            )
+
+    # After the component exists, so its iframe can be found.
+    if st.session_state.fit_page:
+        fit_page_to_viewer()
 
     if value is not None:
         # NB: the component's timestamp field is "unix_time", not "time" —
@@ -1054,17 +1182,26 @@ def render_marking_view(pdf_path: Path) -> None:
         click_id = (value.get("x"), value.get("y"), value.get("unix_time"))
         if st.session_state.last_click_id != click_id:
             st.session_state.last_click_id = click_id
-            submit_click(pdf_path, page_no, value["x"], value["y"], scale)
+            submit_click(
+                pdf_path, page_no, value["x"], value["y"],
+                value.get("width") or marked_img.width,
+                value.get("height") or marked_img.height,
+            )
             st.rerun()
 
-    pending_count = sum(1 for m in st.session_state.markers if m["status"] == "pending")
-    if pending_count:
-        st.caption(f"Analyzing {pending_count} marked figure(s) in the background…")
-
-    nav_left, nav_right = st.columns(2)
+    # A single row for everything under the viewer. Page count, status and
+    # Compare used to sit on their own lines above and below the nav buttons,
+    # costing ~160px of height — and every pixel there comes straight off the
+    # page, since a portrait page is always height-bound.
+    # Keyed so focus mode can hide the whole row: hiding just the buttons
+    # leaves the row's own height behind, which is the thing being reclaimed.
+    nav_row = st.container(key="nav_row")
+    nav_left, nav_mid, nav_right, nav_action = nav_row.columns(
+        [1, 2, 1, 4], vertical_alignment="center"
+    )
     with nav_left:
         if st.button(
-            "◀ Previous Page  `←`",
+            "◀  `←`",
             disabled=(page_no == 1),
             use_container_width=True,
             key="prev_page_button",
@@ -1072,9 +1209,15 @@ def render_marking_view(pdf_path: Path) -> None:
             st.session_state.current_marking_page = page_no - 1
             st.rerun()
         bind_shortcut("ArrowLeft", "prev_page_button")
+    with nav_mid:
+        pending_count = sum(1 for m in st.session_state.markers if m["status"] == "pending")
+        if pending_count:
+            st.caption(f"Page {page_no} of {n_pages} · analysing {pending_count} in background…")
+        else:
+            st.caption(f"Page {page_no} of {n_pages}")
     with nav_right:
         if st.button(
-            "Next Page ▶  `→`",
+            "▶  `→`",
             disabled=(page_no == n_pages),
             use_container_width=True,
             key="next_page_button",
@@ -1082,18 +1225,17 @@ def render_marking_view(pdf_path: Path) -> None:
             st.session_state.current_marking_page = page_no + 1
             st.rerun()
         bind_shortcut("ArrowRight", "next_page_button")
-
-    st.divider()
-    if st.session_state.markers:
-        if st.button(
-            "Compare marked images →  `Enter`", type="primary", key="compare_images_button"
-        ):
-            st.session_state.stage = "comparing"
-            st.rerun()
-        bind_shortcut("Enter", "compare_images_button")
-    else:
-        st.caption("Click on a figure above to mark it as a candidate SEM diagram, "
-                   "or press D to disregard this PDF.")
+    with nav_action:
+        if st.session_state.markers:
+            if st.button(
+                "Compare marked images →  `Enter`", type="primary",
+                key="compare_images_button", use_container_width=True,
+            ):
+                st.session_state.stage = "comparing"
+                st.rerun()
+            bind_shortcut("Enter", "compare_images_button")
+        else:
+            st.caption("Click a figure to mark it · `D` disregard · `F` full view")
 
     # Last, so this page is already on screen: raster the adjacent pages so
     # the next Previous/Next click reads them straight from cache.
@@ -1140,10 +1282,12 @@ def render_comparison_gallery(pdf_path: Path) -> None:
                 is_selected = number in selected_numbers
                 thumbnail = _compose_gallery_thumbnail(marker["crop_image"], is_selected)
 
-                # "auto" = natural size; "always" would stretch it to the full
-                # column width and blow the thumbnail up.
+                # "always" = scale to the column. Not "auto", which despite
+                # its docs is plain width:auto — natural size with no clamp at
+                # all, so on a narrow window a 320px thumbnail overflowed its
+                # column and overlapped its neighbour.
                 value = streamlit_image_coordinates(
-                    thumbnail, key=f"gallery_{number}", use_column_width="auto"
+                    thumbnail, key=f"gallery_{number}", use_column_width="always"
                 )
                 if value is not None:
                     click_id = (value.get("x"), value.get("y"), value.get("unix_time"))
@@ -1213,16 +1357,17 @@ def render_recrop_view(pdf_path: Path) -> None:
 
     page_img = get_rendered_page(pdf_path, page_no, scale)
 
+    # Natural size and scrollable on purpose, unlike the marking view: a drag
+    # box wants real pixels to aim at, and the sidebar zoom is how you get
+    # them. Coordinates are normalised below either way.
     with st.container(height=VIEWER_HEIGHT_PX, border=True, key="pdf_viewer"):
-        left, center, right = st.columns([1, 2, 1])
-        with center:
-            value = streamlit_image_coordinates(
-                page_img,
-                key=f"recrop_canvas_{number}_{page_no}_{scale}",
-                click_and_drag=True,
-                use_column_width="auto",
-                png_compression_level=PAGE_PNG_COMPRESSION,
-            )
+        value = streamlit_image_coordinates(
+            page_img,
+            key=f"recrop_canvas_{number}_{page_no}_{scale}",
+            click_and_drag=True,
+            use_column_width="auto",
+            png_compression_level=PAGE_PNG_COMPRESSION,
+        )
 
     # After the component exists, so its iframe can be found.
     enable_drag_preview()
@@ -1474,9 +1619,13 @@ def main() -> None:
         _html(
             """
         <style>
-        /* Streamlit's header is 60px tall and absolutely positioned, so it sits
-           on top of the page; clear it or the first element is cut off. */
-        .block-container { padding-top: 4rem; padding-bottom: 0.8rem; max-width: 1500px; }
+        /* Streamlit's header is 60px tall and absolutely positioned. It holds
+           only the menu, and the logo lives in the sidebar, so hiding it buys
+           back ~64px of height with the padding that used to clear it. On a
+           portrait page height is always the binding constraint, so every
+           pixel reclaimed here goes straight into how big the page renders. */
+        header[data-testid="stHeader"] { display: none; }
+        .block-container { padding-top: 0.6rem; padding-bottom: 0.3rem; max-width: 1900px; }
 
         /* Muted, slightly smaller secondary text (page counts, statuses). */
         [data-testid="stCaptionContainer"] p { color: #6C6C79; font-size: 0.8rem;
@@ -1498,22 +1647,49 @@ def main() -> None:
 
         hr { margin: 0.5rem 0; border-color: #E8E9EE; }
 
+
         /* Size the viewer to the window so the buttons under it stay on
            screen without scrolling. st.container(height=...) sets a flex-basis
            on the wrapper *around* the keyed element, so the height has to be
            overridden there — setting it on the element itself does nothing.
            The px height passed to st.container remains the fallback. */
         [data-testid="stLayoutWrapper"]:has(> .st-key-pdf_viewer) {
-             flex: 0 0 calc(100vh - 210px) !important;
-             height: calc(100vh - 210px) !important; }
+             flex: 0 0 calc(100vh - VIEWER_CHROMEpx) !important;
+             height: calc(100vh - VIEWER_CHROMEpx) !important; }
         .st-key-pdf_viewer { height: 100% !important; }
+        /* Centre the page now that the 1:2:1 spacer columns are gone. */
+        .st-key-pdf_viewer > div { display: flex; justify-content: center; }
         </style>
-            """
+            """.replace("VIEWER_CHROMEpx", f"{VIEWER_CHROME_PX}px")
         ),
         unsafe_allow_html=True,
     )
     ensure_dirs()
     init_session_state()
+
+    if st.session_state.focus_mode:
+        # Everything except the page itself. The sidebar is collapsed to zero
+        # width rather than display:none so its buttons stay in the DOM —
+        # bind_shortcut clicks them, so D/F/zoom would all die with it.
+        # The nav buttons hide for the same reason: ←/→/Enter are document
+        # level listeners and keep working while the buttons are invisible.
+        st.markdown(
+            _html(
+                """
+        <style>
+        [data-testid="stSidebar"] { width: 0 !important; min-width: 0 !important;
+             overflow: hidden !important; }
+        .st-key-nav_row { display: none !important; }
+        .block-container { padding-top: 0.2rem; padding-bottom: 0.2rem;
+             max-width: 100% !important; }
+        [data-testid="stLayoutWrapper"]:has(> .st-key-pdf_viewer) {
+             flex: 0 0 calc(100vh - FOCUS_CHROMEpx) !important;
+             height: calc(100vh - FOCUS_CHROMEpx) !important; }
+        </style>
+                """.replace("FOCUS_CHROMEpx", f"{FOCUS_CHROME_PX}px")
+            ),
+            unsafe_allow_html=True,
+        )
     st.session_state.pending_shortcuts = []
 
     apply_favicon()
@@ -1542,8 +1718,24 @@ def main() -> None:
                 st.caption(f"{in_flight_count} PDF(s) finishing up in the background")
 
         if pdf_path is not None:
+            st.session_state.fit_page = st.toggle(
+                "Fit page to window", value=st.session_state.fit_page,
+                help="Scale the page to fill the viewer. Turn off to view it at "
+                     "a fixed zoom and scroll.",
+            )
             zoom_label = st.selectbox("Zoom", list(ZOOM_LEVELS.keys()), index=1)
             st.session_state.zoom_scale = ZOOM_LEVELS[zoom_label]
+            if st.session_state.fit_page:
+                # Size is decided by the window while fitting, so the only
+                # thing this still changes is how crisp the page looks.
+                st.caption("While fitted, zoom sets sharpness, not size.")
+
+            if st.button(
+                "Full view  `F`", key="focus_button", use_container_width=True
+            ):
+                st.session_state.focus_mode = not st.session_state.focus_mode
+                st.rerun()
+            bind_shortcut("f", "focus_button")
 
             st.divider()
             bind_shortcut("d", "disregard_button")

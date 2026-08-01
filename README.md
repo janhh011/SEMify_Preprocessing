@@ -38,7 +38,12 @@ extraction finish in the background.
 | **Enter** | Advance (marking → compare → save) |
 | **R** | Recrop — drag a box when the automatic crop is wrong |
 | **D** | Disregard the PDF → `disregard/` |
+| **F** | Full view — hide the sidebar and controls for the largest possible page |
 | **Esc** | Cancel a recrop |
+
+The page scales to fill the window, so the whole page is visible without scrolling on any screen.
+Turn off **Fit page to window** in the sidebar to view it at a fixed zoom and scroll instead; while
+fitted, the zoom setting controls sharpness rather than size.
 
 ---
 
