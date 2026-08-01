@@ -829,27 +829,34 @@ def apply_favicon() -> None:
     )
 
 
-def fit_page_to_viewer() -> None:
+def fit_page_to_viewer(aspect: float) -> None:
     """Scale the page image to fill the viewer box, without scrolling.
 
     The component shows its image at natural size, so on a short window the
-    page overflowed and scrolled, and on a tall one it left space unused. The
-    box is sized in `vh` (see the stylesheet in main), so the fit has to happen
-    in the browser: measure the box and cap the <img> against it.
+    page overflowed and scrolled, and on a tall one it left space unused.
 
-    Same trick as enable_drag_preview — the component's iframe is same-origin,
-    so a <style> can be injected into it. Scales both ways: down when the
-    window is short, up when the box is taller than the render, which is what
-    keeps the page as large as the screen allows. Upscaling costs sharpness;
-    the sidebar zoom raises the render resolution to compensate.
+    Sizing is entirely static CSS, driven by the page's own aspect ratio: the
+    iframe is set to exactly the fitted page, and the component's own
+    "always" class makes the image fill it. Nothing is measured and nothing is
+    injected, so there is no frame in which the page is the wrong size or in
+    the wrong place. Two earlier attempts are worth not repeating — reading
+    the box height in JS raced the layout and produced a max-height taller
+    than the page, and injecting the centring style into the iframe meant the
+    page painted left-aligned for a moment after every page turn, because the
+    component reloads its document when the image changes and takes injected
+    styles with it.
+
+    Scales both ways: down when the window is short, up when the box is
+    taller than the render, which keeps the page as large as the screen
+    allows. Upscaling costs sharpness; the sidebar zoom raises the render
+    resolution to compensate.
 
     Clicks stay correct because submit_click converts through the displayed
     size the component reports back, not through the render scale.
     """
-    # Stretch the component's iframe over the whole box. Streamlit writes an
-    # inline height onto it from the image's natural height (the component
-    # calls setFrameHeight), and an !important rule in a stylesheet outranks
-    # a plain inline style, so this wins without any JavaScript.
+    # Streamlit writes an inline height onto the iframe from the image's
+    # natural height (the component calls setFrameHeight), and an !important
+    # rule in a stylesheet outranks a plain inline style, so this wins.
     #
     # Sized in vh rather than height:100%, which silently collapses: a
     # percentage height needs every ancestor to have a definite height, and
@@ -858,13 +865,19 @@ def fit_page_to_viewer() -> None:
     # Scoped to the marking view: the recrop canvas shares the pdf_viewer key
     # but wants natural size and a scrollbar to aim at.
     chrome = FOCUS_CHROME_PX if st.session_state.focus_mode else VIEWER_CHROME_PX
+    page_h = f"calc(100vh - {chrome + VIEWER_PADDING_PX}px)"
     st.markdown(
         _html(
             f"""
         <style>
         .st-key-pdf_viewer iframe {{
-             height: calc(100vh - {chrome + VIEWER_PADDING_PX}px) !important;
-             width: 100% !important; }}
+             height: {page_h} !important;
+             /* Exactly the fitted page, so centring is plain box layout and
+                needs no code. max-width keeps a very narrow window honest. */
+             width: calc({page_h} * {aspect:.4f}) !important;
+             max-width: 100% !important;
+             margin-left: auto !important; margin-right: auto !important;
+             display: block !important; }}
         /* The marking view's column holds two visible things and several
            zero-height helpers (the style blocks above, the JS components).
            Streamlit's 15px flex gap applies between all of them, so ~75px of
@@ -884,17 +897,15 @@ def fit_page_to_viewer() -> None:
         """
         <script>
         (function () {
-            // Static rule, deliberately measuring nothing: an earlier version
-            // read the box height in JS and raced the layout, landing on a
-            // max-height taller than the page, which clamped nothing at all.
-            // Percentages resolve against the iframe, which the stylesheet
-            // above has already pinned to the box, so resizing needs no code.
-            const CSS =
-                'html, body { height: 100%; margin: 0; }' +
-                '#image-container { height: 100%; overflow: hidden;' +
-                ' display: flex; align-items: center; justify-content: center; }' +
-                '#image { max-width: 100% !important; max-height: 100% !important;' +
-                ' width: auto !important; height: auto !important; }';
+            // Cosmetic only. The stylesheet above already sizes and centres
+            // the page, deliberately: this style is lost whenever the
+            // component reloads its document, and anything positional in
+            // here would show as the page jumping after every page turn.
+            // All that is left is suppressing the component's own
+            // "overflow-x: scroll", which would otherwise show a scrollbar
+            // track under the page. Arriving late costs nothing visible.
+            const CSS = 'html, body { margin: 0; }' +
+                        '#image-container { overflow: hidden !important; }';
 
             function fit() {
                 window.parent.document
@@ -903,8 +914,8 @@ def fit_page_to_viewer() -> None:
                         let d;
                         try { d = frame.contentDocument; } catch (err) { return; }
                         if (!d || !d.getElementById('image')) return;
-                        // Re-injecting after a reload is the whole point, so
-                        // this only skips when the style is genuinely present.
+                        // Re-injecting after a reload is the point, so this
+                        // only skips when the style is genuinely present.
                         if (!d.getElementById('semify-fit')) {
                             const style = d.createElement('style');
                             style.id = 'semify-fit';
@@ -923,8 +934,7 @@ def fit_page_to_viewer() -> None:
             // Runs for as long as this script's own iframe lives, which is
             // until the next rerun replaces it. Injecting once is not enough:
             // the component reloads its document when the page image changes,
-            // taking the style with it, and the page then showed at natural
-            // size inside a shorter box — i.e. cropped.
+            // and takes the style with it.
             fit();
             setInterval(fit, 300);
         })();
@@ -1138,6 +1148,11 @@ def render_marking_view(pdf_path: Path) -> None:
     st.session_state.current_marking_page = page_no
 
     value = None
+    fit = st.session_state.fit_page
+    # Drives the iframe's width in CSS, so the box is exactly the page and
+    # centring is static layout rather than something JavaScript arrives to fix.
+    page_w_pt, page_h_pt = get_page_point_size(pdf_path, page_no)
+    aspect = page_w_pt / page_h_pt if page_h_pt else 0.7727
     # Fixed-height, bordered container: reserves the same vertical space
     # regardless of page aspect ratio/zoom, so the nav buttons below never
     # shift as pages change or the image loads. No centring columns — they
@@ -1161,14 +1176,19 @@ def render_marking_view(pdf_path: Path) -> None:
             # turn, blanking the viewer. With one stable key the iframe
             # lives for the whole PDF and only its image swaps, so the
             # current page stays on screen until the next one paints.
+            # "always" while fitting: the component's own fullWidth class
+            # sizes the image to the iframe the moment it loads, with no
+            # injected style to wait for. The iframe is already exactly the
+            # fitted page, so this scales rather than stretches.
             value = streamlit_image_coordinates(
                 marked_img, key="pdf_page",
+                use_column_width="always" if fit else None,
                 png_compression_level=PAGE_PNG_COMPRESSION,
             )
 
     # After the component exists, so its iframe can be found.
-    if st.session_state.fit_page:
-        fit_page_to_viewer()
+    if fit:
+        fit_page_to_viewer(aspect)
 
     if value is not None:
         # NB: the component's timestamp field is "unix_time", not "time" —
